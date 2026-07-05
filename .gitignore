@@ -1,20 +1,14 @@
-# Ignorer les données volumineuses de la base de données
+# Ignorer tout le contenu à l'intérieur des dossiers de données
 data/config1/*
-
 data/config2/*
-
 data/config3/*
-
-
 data/shard1/*
-
 data/shard2/*
-
 data/shard3/*
-
 data/shard4/*
 
-
+# Ne pas ignorer les fichiers .gitkeep pour conserver l'arborescence sur GitHub
+!**/\.gitkeep
 
 # Ignorer les journaux d'erreurs
 *.log
