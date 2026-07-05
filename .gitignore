@@ -1,0 +1,20 @@
+# Ignorer les données volumineuses de la base de données
+data/config1/*
+
+data/config2/*
+
+data/config3/*
+
+
+data/shard1/*
+
+data/shard2/*
+
+data/shard3/*
+
+data/shard4/*
+
+
+
+# Ignorer les journaux d'erreurs
+*.log

@@ -1,0 +1,89 @@
+networks:
+  mongo-cluster:
+    driver: bridge
+
+services:
+  # ------------------------------------------------------------------
+  # CONFIG SERVERS (Replica Set pour les métadonnées)
+  # ------------------------------------------------------------------
+  configServ1:
+    image: mongo:8.0
+    container_name: mongo-config1
+    command: mongod --configsvr --replSet configReplSet --dbpath /data/db --port 27019 --bind_ip_all
+    volumes:
+      - ./data/config1:/data/db
+    networks:
+      - mongo-cluster
+
+  configServ2:
+    image: mongo:8.0
+    container_name: mongo-config2
+    command: mongod --configsvr --replSet configReplSet --dbpath /data/db --port 27019 --bind_ip_all
+    volumes:
+      - ./data/config2:/data/db
+    networks:
+      - mongo-cluster
+
+  configServ3:
+    image: mongo:8.0
+    container_name: mongo-config3
+    command: mongod --configsvr --replSet configReplSet --dbpath /data/db --port 27019 --bind_ip_all
+    volumes:
+      - ./data/config3:/data/db
+    networks:
+      - mongo-cluster
+
+  # ------------------------------------------------------------------
+  # LES 4 SHARDS (Serveurs de stockage des données de télémétrie)
+  # ------------------------------------------------------------------
+  shard1:
+    image: mongo:8.0
+    container_name: mongo-shard1
+    command: mongod --shardsvr --replSet shard1ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    volumes:
+      - ./data/shard1:/data/db
+    networks:
+      - mongo-cluster
+
+  shard2:
+    image: mongo:8.0
+    container_name: mongo-shard2
+    command: mongod --shardsvr --replSet shard2ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    volumes:
+      - ./data/shard2:/data/db
+    networks:
+      - mongo-cluster
+
+  shard3:
+    image: mongo:8.0
+    container_name: mongo-shard3
+    command: mongod --shardsvr --replSet shard3ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    volumes:
+      - ./data/shard3:/data/db
+    networks:
+      - mongo-cluster
+
+  shard4:
+    image: mongo:8.0
+    container_name: mongo-shard4
+    command: mongod --shardsvr --replSet shard4ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    volumes:
+      - ./data/shard4:/data/db
+    networks:
+      - mongo-cluster
+
+  # ------------------------------------------------------------------
+  # LE ROUTEUR (mongos - Point d'entrée unique)
+  # ------------------------------------------------------------------
+  mongos:
+    image: mongo:8.0
+    container_name: mongo-mongos
+    depends_on:
+      - configServ1
+      - configServ2
+      - configServ3
+    command: mongos --configdb configReplSet/configServ1:27019,configServ2:27019,configServ3:27019 --bind_ip_all --port 27017
+    ports:
+      - "27020:27017"
+    networks:
+      - mongo-cluster
