@@ -27,6 +27,8 @@ Avant le lancement des conteneurs Docker, il est nécessaire de préparer l'arbo
 # des Config Servers ainsi que des quatre Shards.
 mkdir -p data/config1 data/config2 data/config3 data/shard1 data/shard2 data/shard3 data/shard4
 
+mkdir -p data/shard1-node2 data/shard1-node3
+
 # Attribution des permissions complètes afin que
 # l'utilisateur MongoDB présent dans les conteneurs
 # puisse accéder aux volumes sans erreur "Permission Denied".
@@ -128,7 +130,7 @@ sleep 3
 ```bash
 # Création du Replica Set associé au premier shard.
 docker exec -it mongo-shard1 mongosh --port 27018 --eval \
-'rs.initiate({_id:"shard1ReplSet",members:[{_id:0,host:"shard1:27018"}]})'
+'rs.initiate({_id: "shard1ReplSet", members: [{_id: 0, host: "shard1:27018"}, {_id: 1, host: "shard1-node2:27018"}, {_id: 2, host: "shard1-node3:27018"}]})'
 ```
 
 ### Shard 2
