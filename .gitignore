@@ -12,3 +12,6 @@ data/shard4/*
 
 # Ignorer les journaux d'erreurs
 *.log
+dataset/
+dataset_50000/
+dataset_10000/
