@@ -1,315 +1,157 @@
-# 🛠️ Bilan Technique – Personne A : Infrastructure & Sharding
+# 🏥 Plateforme Nationale de Centralisation de Logs Médicaux (Dossier Patient Partagé)
+> **Master en Intelligence Artificielle (Dakar)**  
+> *Livrable Commun d'Architecture NoSQL & Sécurité Avancée — MongoDB 8.0 & Docker v3.8*
 
-## Objectif
-
-L'objectif de cette partie du projet était de **concevoir, déployer et documenter une infrastructure MongoDB 8.0 distribuée et hautement disponible**, capable de supporter la charge d'une plateforme nationale de gestion des logs médicaux.
-
-Cette mission comprenait :
-
-- la préparation de l'environnement Linux ;
-- le déploiement de l'architecture distribuée avec Docker ;
-- l'automatisation de l'initialisation du cluster ;
-- la validation du fonctionnement du Sharding ;
-- l'étude comparative des différentes stratégies de fragmentation des données.
+Ce dépôt contient l'implémentation complète, industrialisée et hautement sécurisée d'un cluster MongoDB 8.0 distribué. Ce projet applique les concepts de **Sharding horizontal à 4 fragments** et de **sécurité multi-niveaux (TLS / RBAC / Audit / Data Masking)** à un cas d'usage critique : la centralisation nationale des comptes-rendus cliniques et de la traçabilité des accès aux dossiers de santé (HDS / RGPD).
 
 ---
 
-# Étape 1 : Préparation de l'environnement Linux et gestion des permissions
+## 📐 Architecture Réseau et Topologie du Cluster
 
-## Objectif
+Le cluster isole logiquement les flux réseau pour empêcher toute intrusion directe sur les nœuds de stockage :
 
-Avant le lancement des conteneurs Docker, il est nécessaire de préparer l'arborescence qui accueillera les données persistantes de MongoDB.
+```mermaid
+flowchart TD
+    subgraph Frontend ["ZONE EXPOSÉE HÔTE (frontend-net)"]
+        mongos["🌐 Routeur Mongos (Port Hôte: 27020)"]
+        watcher["⚙️ Audit Watcher (Service d'Écoute)"]
+    end
 
-### Commandes utilisées
+    subgraph Backend ["ZONE ISOLÉE INTERNE (backend-net / DMZ)"]
+        subgraph ConfigRS ["[ Replica Set : configReplSet ]"]
+            c1["ConfigServ1:27019"]
+            c2["ConfigServ2:27019"]
+            c3["ConfigServ3:27019"]
+         Reds configReplSet
+        end
 
-```bash
-# Création des répertoires destinés à stocker les données
-# des Config Servers ainsi que des quatre Shards.
-mkdir -p data/config1 data/config2 data/config3 data/shard1 data/shard2 data/shard3 data/shard4
+        subgraph Shard1RS ["[ Shard1ReplSet (3 membres - Cohérence) ]"]
+            s1["shard1:27018 (Primary)"]
+            s1n2["shard1-node2:27018 (Secondary)"]
+            s1n3["shard1-node3:27018 (Secondary)"]
+        end
 
-mkdir -p data/shard1-node2 data/shard1-node3
+        subgraph ShardsOthers ["[ Fragments légers (1 membre pour la RAM) ]"]
+            s2["shard2ReplSet / shard2:27018"]
+            s3["shard3ReplSet / shard3:27018"]
+            s4["shard4ReplSet / shard4:27018"]
+        end
+    end
 
-# Attribution des permissions complètes afin que
-# l'utilisateur MongoDB présent dans les conteneurs
-# puisse accéder aux volumes sans erreur "Permission Denied".
-chmod -R 777 data/
+    mongos -->|Consulte la table de routage| ConfigRS
+    mongos -->|Distribue les requêtes| Shard1RS
+    mongos -->|Distribue les requêtes| ShardsOthers
+    watcher -->|Surveille en TLS| mongos
 ```
 
-## Justification
-
-MongoDB s'exécute dans les conteneurs Docker sous un utilisateur différent de **root**.
-
-Si Docker crée automatiquement les dossiers, ceux-ci appartiennent généralement à **root**, ce qui empêche MongoDB d'écrire dans les volumes et provoque un arrêt immédiat du serveur.
-
-La création manuelle des dossiers accompagnée des permissions garantit la persistance des données et évite tout conflit de droits d'accès.
+### 🔒 Cloisonnement des Réseaux Docker
+*   **Zone Interne Étanche (`backend-net / internal: true`)** : Les fragments (*shards*) et les serveurs de métadonnées (*config servers*) y sont confinés. Ils ne publient aucun port vers l'extérieur et sont invisibles pour la machine hôte. Isolation réseau = première ligne de défense.
+*   **Zone d'Entrée Privilégiée (`frontend-net`)** : Seul le routeur unique `mongos` (Port `27020:27017`) et le microservice d'infrastructure `audit-watcher` communiquent sur ce segment pour interagir avec l'extérieur.
 
 ---
 
-# Étape 2 : Définition de l'architecture distribuée
+## 🛠️ Matrice de Sécurité Implémentée (Partie 2)
 
-## Architecture déployée
-
-L'infrastructure est composée de huit conteneurs Docker :
-
-- **3 Config Servers**
-- **4 Shards**
-- **1 Routeur Mongos**
-
-Tous les conteneurs communiquent à travers un réseau Docker privé nommé **mongo-cluster**.
-
-## Commande utilisée
-
-```bash
-# Démarrage de tous les conteneurs définis
-# dans le fichier docker-compose.yml.
-docker compose up -d
-
-# Pause de 10 secondes afin de laisser
-# MongoDB terminer complètement son démarrage.
-sleep 10
-```
-
-## Justification
-
-Les trois Config Servers assurent la **haute disponibilité** des métadonnées du cluster.
-
-Depuis MongoDB 8.0, un shard ne peut plus être déclaré comme un simple serveur autonome.
-
-Chaque shard doit obligatoirement appartenir à un **Replica Set**.
-
-Afin de limiter la consommation de ressources, chaque Replica Set est constitué d'un seul membre, ce qui permet de reproduire fidèlement une architecture de production tout en restant léger.
+| Domaine de Contrôle | Mécanisme Technique | Localisation Logicielle |
+| :--- | :--- | :--- |
+| **Authentification inter-nœuds** | Clé secrète partagée de 756 octets base64 | `keyfile/`, `docker-compose.yml` (`secrets`) |
+| **Chiffrement en Transit** | TLS Mutuel obligatoire (`requireTLS` / TLS v1.3) | `certs/`, `config/*.conf` |
+| **Authentification Client** | SCRAM-SHA-256 robuste | `init/04-create-admin-users.js` |
+| **Double Facteur Authentification** | Certificat numérique client externe X.509 | `certs/generate-certs.sh`, `init/06-*.js` |
+| **Contrôle d'Accès Applicatif** | Modèle RBAC sur-mesure (0% action `delete`) | `init/05-rbac-roles.js` |
+| **Confidentialité des Champs** | Data Masking par projections de Vues dynamiques | `init/08-views-field-redaction.js` |
+| **Chiffrement au Repos** | CSFLE applicatif (Chiffrement côté client) | `csfle/` |
+| **Traçabilité des Consultations** | Profiler acquis (`slowms: 0`) + Change Streams | `init/09-audit-profiling.js`, `audit-watcher/` |
+| **Durcissement des Conteneurs** | Cap_drop ALL, no-new-privileges, User non-root | `docker-compose.yml` |
 
 ---
 
-# Étape 3 : Automatisation de l'initialisation du cluster
+## 📂 Organisation Commune du Code Source (VS Code structure)
 
-Afin d'éviter toute configuration manuelle, un script Bash nommé **init.sh** automatise entièrement la création du cluster.
-
----
-
-## Initialisation des Config Servers
-
-```bash
-# Exécution de mongosh à l'intérieur du premier Config Server
-# afin de créer le Replica Set "configReplSet".
-docker exec -it mongo-config1 mongosh --port 27019 --eval '
-rs.initiate({
-    _id:"configReplSet",
-    configsvr:true,
-    members:[
-        {_id:0,host:"configServ1:27019"},
-        {_id:1,host:"configServ2:27019"},
-        {_id:2,host:"configServ3:27019"}
-    ]
-})
-'
-```
-
-### Justification
-
-Cette commande :
-
-- crée le Replica Set des Config Servers ;
-- élit automatiquement un serveur primaire ;
-- permet le stockage distribué des métadonnées du cluster.
-
-Une pause est ensuite effectuée afin de laisser le temps à l'élection du nœud primaire.
-
-```bash
-# Attente de quelques secondes afin que
-# l'élection du Primary soit terminée.
-sleep 3
+```text
+DEVOIR_BDD_G9/
+├── audit-watcher/       --> Microservice Node.js de capture des écritures en temps réel (Change Streams)
+├── certs/               --> Dossier contenant generate-certs.sh + l'ensemble des clés, .pem et .crt générés
+├── config/              --> Fichiers de configuration .conf injectés dans les daemons mongod/mongos
+├── csfle/               --> Module bonus de chiffrement côté client (Field-Level Encryption)
+├── data/                --> Volumes locaux persistants de stockage des fragments et métadonnées
+├── init/                --> Scripts JavaScript d'initialisation logique ordonnés (01 à 09)
+├── keyfile/             --> Script generate-keyfile.sh + la clé générée mongo-cluster.key
+├── .gitignore           --> Gestion des exclusions Git (masquage des fichiers binaires data/)
+├── docker-compose.yml   --> Définition de l'infrastructure physique multi-nœuds (10 conteneurs)
+├── generate_dataset.py  --> Script Python d'injection massive du jeu de données (50 000 entrées)
+├── init.sh              --> Orchestrateur global de déploiement automatique du cluster en 1 clic
+├── PARTIE_C_coherence_performances.md --> Espace de travail pour les benchmarks et la cohérence
+├── README.md            --> Ce guide d'explication et de gouvernance du projet
+├── teardown.sh          --> Arrêt des conteneurs en préservant l'état des bases
+└── test-security.sh     --> Suite d'assertions d'audit affichant la validation PASS/FAIL des rôles
 ```
 
 ---
 
-## Initialisation des quatre Shards
+## 🚀 Guide de Prise en Main (Procédure d'Équipe)
 
-### Shard 1
+Pour lancer l'environnement complet et synchronisé sur votre machine Ubuntu, exécutez ces commandes depuis la racine du projet :
 
+### 1. Générer les secrets cryptographiques de sécurité
 ```bash
-# Création du Replica Set associé au premier shard.
-docker exec -it mongo-shard1 mongosh --port 27018 --eval \
-'rs.initiate({_id: "shard1ReplSet", members: [{_id: 0, host: "shard1:27018"}, {_id: 1, host: "shard1-node2:27018"}, {_id: 2, host: "shard1-node3:27018"}]})'
+# A. Générer la clé d'authentification interne du cluster
+cd keyfile/ && chmod +x generate-keyfile.sh && ./generate-keyfile.sh && cd ..
+
+# B. Générer l'autorité de certification locale (CA) et les certificats TLS serveurs/clients
+cd certs/ && chmod +x generate-certs.sh && sudo ./generate-certs.sh && cd ..
 ```
 
-### Shard 2
-
+### 2. Déployer et initialiser l'ensemble du Cluster
 ```bash
-# Création du Replica Set associé au deuxième shard.
-docker exec -it mongo-shard2 mongosh --port 27018 --eval \
-'rs.initiate({_id:"shard2ReplSet",members:[{_id:0,host:"shard2:27018"}]})'
+chmod +x init.sh
+./init.sh
 ```
+*Le script crée les répertoires, applique les droits Unix (`777` sur les volumes / `400` sur la clé), démarre les conteneurs, applique les configurations d'infrastructure, crée les comptes privilèges, puis déploie l'intelligence RBAC, le masquage et l'audit (`01` à `09`).*
 
-### Shard 3
-
+### 3. Valider la sécurité pour le rapport écrit
 ```bash
-# Création du Replica Set associé au troisième shard.
-docker exec -it mongo-shard3 mongosh --port 27018 --eval \
-'rs.initiate({_id:"shard3ReplSet",members:[{_id:0,host:"shard3:27018"}]})'
+chmod +x test-security.sh
+./test-security.sh
 ```
+*Vérifie la robustesse du cluster face aux intrusions anonymes, sans TLS, aux violations de droits du laborantin/infirmier et valide la connexion x.509 de l'auditeur.*
 
-### Shard 4
-
+### 4. Arrêt et nettoyage de l'espace
 ```bash
-# Création du Replica Set associé au quatrième shard.
-docker exec -it mongo-shard4 mongosh --port 27018 --eval \
-'rs.initiate({_id:"shard4ReplSet",members:[{_id:0,host:"shard4:27018"}]})'
-```
-
-Après l'initialisation des quatre Replica Sets, une nouvelle pause est réalisée.
-
-```bash
-# Attente de la finalisation des Replica Sets
-# avant leur rattachement au cluster.
-sleep 3
-```
-
-## Justification
-
-Même si chaque Replica Set ne possède qu'un seul membre, MongoDB exige désormais cette configuration avant d'autoriser l'ajout d'un shard au cluster.
-
----
-
-# Étape 4 : Rattachement des Shards au Routeur Mongos
-
-Une fois les Replica Sets créés, ceux-ci doivent être enregistrés auprès du routeur **mongos**.
-
-```bash
-# Connexion au routeur Mongos afin d'ajouter
-# chacun des quatre Replica Sets comme shard.
-docker exec -it mongo-mongos mongosh --port 27017 --eval '
-sh.addShard("shard1ReplSet/shard1:27018");
-sh.addShard("shard2ReplSet/shard2:27018");
-sh.addShard("shard3ReplSet/shard3:27018");
-sh.addShard("shard4ReplSet/shard4:27018");
-'
-```
-
-## Justification
-
-Les commandes `sh.addShard()` enregistrent chaque Replica Set auprès du routeur central.
-
-À partir de cet instant, MongoDB peut distribuer automatiquement les collections entre les différents shards.
-
-Une courte pause est ensuite réalisée.
-
-```bash
-# Attente de la prise en compte des nouveaux shards
-# par le routeur Mongos.
-sleep 2
+chmod +x teardown.sh
+./teardown.sh        # Arrête les processus sans altérer vos données locales
+docker compose down -v  # Utilisez cette variante uniquement pour vider les volumes et repartir de zéro
 ```
 
 ---
 
-# Étape 5 : Vérification de la topologie du cluster
+## 👥 Comptes Professionnels et Périmètres RBAC créés
 
-Une fois l'infrastructure entièrement configurée, il est nécessaire de vérifier son état.
-
-```bash
-# Affichage de la configuration complète du cluster :
-# Replica Sets, Balancer, Shards et état général.
-docker exec -it mongo-mongos mongosh --port 27017 --eval 'sh.status()'
-```
-
-## Résultat obtenu
-
-La commande retourne notamment :
-
-- `ok : 1`
-- les quatre Replica Sets correctement enregistrés ;
-- le Balancer actif ;
-- le routeur Mongos fonctionnel ;
-- la version MongoDB 8.0.
-
-Cette sortie confirme que l'architecture distribuée est totalement opérationnelle.
+| Identifiant Utilisateur | Rôle Personnalisé | Périmètre d'Action Fonctionnel |
+| :--- | :--- | :--- |
+| `admin_root` | `root` | Administrateur global du cluster (Fermeture de la Localhost Exception). |
+| `admin_infra_dba` | `clusterAdmin` | Gestion de l'infrastructure matérielle. **0% accès aux données de santé**. |
+| `dr_diop` | `role_medecin` | Lecture/Écriture complète sur `dossiers_patients`. **Suppression interdite**. |
+| `inf_mbacke` | `role_infirmier` | **Lecture seule sur la vue masquée** `v_dossiers_patients_infirmier` + Écriture soins. |
+| `lab_ndiaye` | `role_laborantin` | Accès exclusif à `resultats_labo`. **Cloisonnement total du dossier clinique**. |
+| `admin_fonctionnel` | `role_admin_hopital` | Gestion des comptes locaux et indexation au sein de l'établissement. |
+| `auditeur_scram` / `auditeur_secu_x509` | `role_auditeur_securite` | Lecture seule de `system.profile` et `access_logs`. Aucun accès aux données cliniques. |
+| `audit_watcher_app` | `role_app_watcher` | Jeton applicatif interne utilisé par le conteneur Node.js pour capter les Change Streams. |
 
 ---
 
-# Étape 6 : Étude comparative des stratégies de Sharding
+## 💡 Choix Méthodologiques, Limites Académiques & Pistes de Production
 
-Trois stratégies ont été étudiées afin de déterminer la meilleure méthode de distribution des logs médicaux.
+Pour assurer une transparence scientifique optimale lors de la soutenance devant le jury, nous assumons et documentons les arbitrages techniques suivants :
 
-## 1. Hashed Sharding (Solution retenue)
-
-```javascript
-{ patient_id : "hashed" }
-```
-
-### Principe
-
-MongoDB calcule une valeur de hachage du champ `patient_id` avant de répartir les documents.
-
-### Avantages
-
-- excellente répartition de la charge ;
-- environ 25 % des données sur chacun des quatre shards ;
-- suppression des points chauds ;
-- performances constantes lors des écritures massives.
-
-### Pourquoi ce choix ?
-
-Les logs médicaux sont générés simultanément par plusieurs établissements de santé.
-
-Le hachage permet donc d'éviter qu'un seul shard reçoive toutes les écritures.
+1.  **Architecture Asymétrique des Fragments (Partie 1 & 3)** : En production, 100% des shards doivent être redondants. Afin de préserver la RAM de notre machine de test, nous avons configuré les Shards 2, 3 et 4 en nœuds uniques. À l'inverse, nous avons étendu le **`shard1` en un véritable Replica Set de 3 membres** (`shard1`, `shard1-node2`, `shard1-node3`). Ce choix offre à la **Personne C** un banc d'essai réel pour valider les concepts de tolérance aux pannes et comparer les comportements entre `w:1` et `w:majority`.
+2.  **Audit en Version Community (Partie 2 & 6)** : Le moteur d'audit natif filtrable de MongoDB est restreint aux éditions Enterprise/Atlas. Nous contournons cette limite en associant le profiler natif poussé à l'extrême (`slowms: 0`), interceptant l'intégralité des requêtes de lecture nominatives, à un microservice réactif (`audit-watcher`) qui scelle l'historique des écritures.
+3.  **Intégrité et Cryptographie des Journaux d'Audit** : La persistance des logs dans `audit_db.access_logs` applique un algorithme de **chaînage de blocs cryptographiques par hash SHA-256** (chaque log inclut le hash de l'entrée précédente). Ce mécanisme applicatif garantit la détection immédiate de toute tentative de modification malveillante des traces d'accès.
 
 ---
 
-## 2. Ranged Sharding
+## 🎯 Conclusion (Validation Finale du Rôle d'Infrastructure)
 
-```javascript
-{ date_creation : 1 }
-```
+L'ensemble de cette partie a permis de mettre en place une architecture MongoDB 8.0 distribuée hautement sécurisée reposant sur :
 
-### Principe
-
-Les documents sont répartis selon leur date de création.
-
-### Inconvénient majeur
-
-Les nouveaux logs arrivent en continu.
-
-Toutes les nouvelles insertions seraient donc dirigées vers un unique shard.
-
-Cela provoquerait :
-
-- un hotspot ;
-- un déséquilibre de charge ;
-- une sous-utilisation des autres shards.
-
-Cette solution a donc été rejetée.
-
----
-
-## 3. Compound Sharding
-
-```javascript
-{ patient_id : 1, date_creation : 1 }
-```
-
-### Principe
-
-La clé de fragmentation combine l'identifiant du patient et la date de création.
-
-### Avantages
-
-- recherches très rapides sur l'historique d'un patient ;
-- excellente compatibilité avec les requêtes analytiques.
-
-### Limites
-
-La distribution reste légèrement moins homogène que celle obtenue avec une clé de hachage.
-
----
-
-# Conclusion
-
-L'ensemble de cette partie a permis de mettre en place une architecture MongoDB 8.0 distribuée reposant sur :
-
-- une infrastructure Docker entièrement automatisée ;
-- trois Config Servers assurant la haute disponibilité ;
-- quatre Shards configurés en Replica Sets ;
-- un routeur Mongos centralisant les accès ;
-- une stratégie de Sharding par hachage garantissant une excellente répartition de la charge.
-
-Cette infrastructure constitue une base robuste et évolutive pour l'exploitation d'une plateforme nationale de gestion des logs médicaux.
+*   Une infrastructure Docker entièrement automatisée et reproductible ;
