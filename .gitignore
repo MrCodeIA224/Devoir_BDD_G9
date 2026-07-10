@@ -15,3 +15,7 @@ data/shard4/*
 dataset/
 dataset_50000/
 dataset_10000/
+
+certs/*
+
+keyfile/mongo-cluster.key

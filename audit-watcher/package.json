@@ -1,0 +1,13 @@
+{
+  "name": "audit-watcher",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trace les accès/modifications aux collections cliniques sensibles via MongoDB Change Streams, en complément du profiler natif.",
+  "main": "watcher.js",
+  "scripts": {
+    "start": "node watcher.js"
+  },
+  "dependencies": {
+    "mongodb": "^6.8.0"
+  }
+}

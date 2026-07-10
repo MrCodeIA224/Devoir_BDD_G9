@@ -9,92 +9,182 @@ services:
   configServ1:
     image: mongo:8.0
     container_name: mongo-config1
-    command: mongod --configsvr --replSet configReplSet --dbpath /data/db --port 27019 --bind_ip_all
+    command: >
+      mongod --configsvr --replSet configReplSet --dbpath /data/db --port 27019 --bind_ip_all
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     volumes:
       - ./data/config1:/data/db
+      - ./certs/configServ1.pem:/etc/mongo-certs/node.pem:ro
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
 
   configServ2:
     image: mongo:8.0
     container_name: mongo-config2
-    command: mongod --configsvr --replSet configReplSet --dbpath /data/db --port 27019 --bind_ip_all
+    command: >
+      mongod --configsvr --replSet configReplSet --dbpath /data/db --port 27019 --bind_ip_all
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     volumes:
       - ./data/config2:/data/db
+      - ./certs/configServ2.pem:/etc/mongo-certs/node.pem:ro
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
 
   configServ3:
     image: mongo:8.0
     container_name: mongo-config3
-    command: mongod --configsvr --replSet configReplSet --dbpath /data/db --port 27019 --bind_ip_all
+    command: >
+      mongod --configsvr --replSet configReplSet --dbpath /data/db --port 27019 --bind_ip_all
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     volumes:
       - ./data/config3:/data/db
+      - ./certs/configServ3.pem:/etc/mongo-certs/node.pem:ro
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
 
   # ------------------------------------------------------------------
-  # SHARD 1 : Configuré en VRAI Replica Set (3 membres pour la démo de cohérence)
+  # SHARD 1 : Configuré en Replica Set à 3 membres (Démo Cohérence)
   # ------------------------------------------------------------------
   shard1:
     image: mongo:8.0
     container_name: mongo-shard1
-    command: mongod --shardsvr --replSet shard1ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    command: >
+      mongod --shardsvr --replSet shard1ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     volumes:
       - ./data/shard1:/data/db
+      - ./certs/shard1.pem:/etc/mongo-certs/node.pem:ro
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
 
   shard1-node2:
     image: mongo:8.0
     container_name: mongo-shard1-node2
-    command: mongod --shardsvr --replSet shard1ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    command: >
+      mongod --shardsvr --replSet shard1ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     volumes:
       - ./data/shard1-node2:/data/db
+      - ./certs/shard1-node2.pem:/etc/mongo-certs/node.pem:ro # Utilise le certificat du shard1
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
 
   shard1-node3:
     image: mongo:8.0
     container_name: mongo-shard1-node3
-    command: mongod --shardsvr --replSet shard1ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    command: >
+      mongod --shardsvr --replSet shard1ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     volumes:
       - ./data/shard1-node3:/data/db
+      - ./certs/shard1-node3.pem:/etc/mongo-certs/node.pem:ro
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
 
   # ------------------------------------------------------------------
-  # SHARDS 2, 3, 4 : Fragments de stockage (1 membre chacun pour économiser la RAM)
+  # SHARDS 2, 3, 4 : Fragments de stockage (1 membre chacun)
   # ------------------------------------------------------------------
   shard2:
     image: mongo:8.0
     container_name: mongo-shard2
-    command: mongod --shardsvr --replSet shard2ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    command: >
+      mongod --shardsvr --replSet shard2ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     volumes:
       - ./data/shard2:/data/db
+      - ./certs/shard2.pem:/etc/mongo-certs/node.pem:ro
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
 
   shard3:
     image: mongo:8.0
     container_name: mongo-shard3
-    command: mongod --shardsvr --replSet shard3ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    command: >
+      mongod --shardsvr --replSet shard3ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     volumes:
       - ./data/shard3:/data/db
+      - ./certs/shard3.pem:/etc/mongo-certs/node.pem:ro
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
 
   shard4:
     image: mongo:8.0
     container_name: mongo-shard4
-    command: mongod --shardsvr --replSet shard4ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+    command: >
+      mongod --shardsvr --replSet shard4ReplSet --dbpath /data/db --port 27018 --bind_ip_all
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     volumes:
       - ./data/shard4:/data/db
+      - ./certs/shard4.pem:/etc/mongo-certs/node.pem:ro
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
 
   # ------------------------------------------------------------------
-  # LE ROUTEUR (mongos - Point d'entrée unique de l'application)
+  # LE ROUTEUR (mongos - Point d'entrée unique sécurisé)
   # ------------------------------------------------------------------
   mongos:
     image: mongo:8.0
@@ -103,8 +193,26 @@ services:
       - configServ1
       - configServ2
       - configServ3
-    command: mongos --configdb configReplSet/configServ1:27019,configServ2:27019,configServ3:27019 --bind_ip_all --port 27017
+    command: >
+      mongos --configdb configReplSet/configServ1:27019,configServ2:27019,configServ3:27019 --bind_ip_all --port 27017
+      --keyFile /etc/mongo-keyfile/mongo-cluster.key
+      --tlsMode requireTLS
+      --tlsCertificateKeyFile /etc/mongo-certs/node.pem
+      --tlsCAFile /etc/mongo-certs/ca.pem
     ports:
       - "27020:27017"
+    volumes:
+      - ./certs/mongos.pem:/etc/mongo-certs/node.pem:ro
+      - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+    secrets:
+      - source: cluster_keyfile
+        target: /etc/mongo-keyfile/mongo-cluster.key
     networks:
       - mongo-cluster
+
+# ------------------------------------------------------------------
+# DÉCLARATION DU SECRET DE CLUSTER (Indispensable pour MongoDB)
+# ------------------------------------------------------------------
+secrets:
+  cluster_keyfile:
+    file: ./keyfile/mongo-cluster.key
