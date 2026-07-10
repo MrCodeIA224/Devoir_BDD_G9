@@ -25,6 +25,8 @@ data/shard1-node3/*
 .DS_Store
 **/.DS_Store
 
-certs/*
+certs/*.crt
+certs/*.pem
+certs/*.key
 
 keyfile/mongo-cluster.key
