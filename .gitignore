@@ -15,3 +15,12 @@ data/shard4/*
 dataset/
 dataset_50000/
 dataset_10000/
+
+# Donnees des nouveaux membres du shard 1 (ajout Partie C)
+data/shard1-node2/*
+data/shard1-node3/*
+!**/.gitkeep
+
+# Fichiers systeme macOS
+.DS_Store
+**/.DS_Store
