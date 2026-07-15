@@ -56,7 +56,7 @@ sleep 15
 echo -e "${BLUE}=== [3/6] Initialisation logique de l'infrastructure de base ===${NC}"
 
 echo "-> Liaison du Replica Set des Config Servers (Script 01)..."
-docker exec -it mongo-config1 $MONGOSH_TLS_ADMIN --port 27019 --file /init/01-init-config-servers.js
+docker exec -it mongo-config1 $MONGOSH_TLS_ADMIN --port 27019 --file /init/01-init-configsvr-rs.js
 sleep 5
 
 echo "-> Liaison spécifique du Shard 1 (3 membres pour la démo de cohérence)..."
@@ -79,7 +79,7 @@ docker exec -it mongo-shard4 $MONGOSH_TLS_ADMIN --port 27018 --eval 'var SHARD_H
 sleep 3
 
 echo "-> Enregistrement des 4 fragments auprès du routeur central (Script 03)..."
-docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --file /init/03-add-shards-to-mongos.js
+docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --file /init/03-mongos-addshards.js
 sleep 2
 
 echo -e "${BLUE}=== [4/6] Création des comptes administratifs & Verrouillage du cluster ===${NC}"
