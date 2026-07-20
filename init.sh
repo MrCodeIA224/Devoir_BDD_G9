@@ -39,7 +39,7 @@ EVAL_APP_VARIABLES="var ROOT_USER=\"$ROOT_USER\"; var ROOT_PASSWORD=\"$ROOT_PASS
 EVAL_USERS_VARIABLES="var ROOT_USER=\"$ROOT_USER\"; var ROOT_PASSWORD=\"$ROOT_PASSWORD\"; var APP_DB_NAME=\"$APP_DB_NAME\"; var MEDECIN_USER=\"$MEDECIN_USER\"; var MEDECIN_PASSWORD=\"$MEDECIN_PASSWORD\"; var INFIRMIER_USER=\"$INFIRMIER_USER\"; var INFIRMIER_PASSWORD=\"$INFIRMIER_PASSWORD\"; var LABORANTIN_USER=\"$LABORANTIN_USER\"; var LABORANTIN_PASSWORD=\"$LABORANTIN_PASSWORD\"; var ADMIN_HOPITAL_USER=\"$ADMIN_HOPITAL_USER\"; var ADMIN_HOPITAL_PASSWORD=\"$ADMIN_HOPITAL_PASSWORD\"; var AUDITEUR_USER=\"$AUDITEUR_USER\"; var AUDITEUR_PASSWORD=\"$AUDITEUR_PASSWORD\"; var APP_USER=\"$APP_USER\"; var APP_PASSWORD=\"$APP_PASSWORD\";"
 
 # Raccourcis de connexion administratifs TLS locaux requis par net.tls.mode=requireTLS
-MONGOSH_TLS_ADMIN="mongosh --tls --tlsCertificateKeyFile ./certs/admin-client.pem --tlsCAFile ./certs/ca.pem"
+MONGOSH_TLS_ADMIN="mongosh --tls --tlsCertificateKeyFile /etc/mongo-certs/node.pem --tlsCAFile /etc/mongo-certs/ca.pem"
 
 echo -e "${BLUE}=== [1/6] Alignement des permissions de sécurité Linux ===${NC}"
 mkdir -p data/config1 data/config2 data/config3 data/shard1 data/shard1-node2 data/shard1-node3 data/shard2 data/shard3 data/shard4
@@ -56,7 +56,7 @@ sleep 15
 echo -e "${BLUE}=== [3/6] Initialisation logique de l'infrastructure de base ===${NC}"
 
 echo "-> Liaison du Replica Set des Config Servers (Script 01)..."
-docker exec -it mongo-config1 $MONGOSH_TLS_ADMIN --port 27019 --file /init/01-init-config-servers.js
+docker exec -it mongo-config1 $MONGOSH_TLS_ADMIN --port 27019 --file /init/01-init-configsvr-rs.js
 sleep 5
 
 echo "-> Liaison spécifique du Shard 1 (3 membres pour la démo de cohérence)..."
@@ -79,7 +79,7 @@ docker exec -it mongo-shard4 $MONGOSH_TLS_ADMIN --port 27018 --eval 'var SHARD_H
 sleep 3
 
 echo "-> Enregistrement des 4 fragments auprès du routeur central (Script 03)..."
-docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --file /init/03-add-shards-to-mongos.js
+docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --file /init/03-mongos-addshards.js
 sleep 2
 
 echo -e "${BLUE}=== [4/6] Création des comptes administratifs & Verrouillage du cluster ===${NC}"
