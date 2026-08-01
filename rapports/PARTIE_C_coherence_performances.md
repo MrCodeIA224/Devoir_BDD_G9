@@ -60,9 +60,9 @@ Toute la démonstration a été réalisée sur un cluster monté localement (Doc
 
 Le démarrage des 10 conteneurs (`docker compose up -d`) puis l'initialisation des replica sets et l'ajout des shards au routeur donnent un cluster opérationnel. La commande `sh.status()` confirme que les 4 shards sont enregistrés, et que le shard 1 est bien un replica set de 3 membres.
 
-![Démarrage du cluster : 10 conteneurs Up](captures_partie_c/01_demarrage_cluster.png)
+![Démarrage du cluster : 10 conteneurs Up](../captures_partie_c/01_demarrage_cluster.png)
 
-![sh.status() : le shard 1 avec ses 3 membres](captures_partie_c/02_sh_status_shard1_3membres.png)
+![sh.status() : le shard 1 avec ses 3 membres](../captures_partie_c/02_sh_status_shard1_3membres.png)
 
 ### Test 1 — Fonctionnement normal : tout le monde est d'accord
 
@@ -77,7 +77,7 @@ db.patients.insertOne(
 
 Résultat : `acknowledged: true` — au moins 2 membres sur 3 possèdent la donnée, elle ne peut plus être perdue même si un serveur tombe. Les deux niveaux de lecture (`"local"` et `"majority"`) renvoient ensuite le même patient : quand le cluster va bien, la réplication est quasi instantanée et la cohérence forte est assurée.
 
-![Fonctionnement normal : écriture majority confirmée, les deux lectures d'accord](captures_partie_c/03_fonctionnement_normal.png)
+![Fonctionnement normal : écriture majority confirmée, les deux lectures d'accord](../captures_partie_c/03_fonctionnement_normal.png)
 
 ### Test 2 — Panne simulée : la différence devient visible
 
@@ -85,7 +85,7 @@ Pour voir ce qui se passe quand la réplication est cassée, on gèle les deux s
 
 **Première observation (inattendue mais très instructive)** : un primaire qui reste isolé de la majorité pendant plus de dix secondes **abdique tout seul**. Le replica set n'a alors plus aucun primaire et refuse toute écriture (`NotWritablePrimary: not primary`). MongoDB préfère devenir indisponible en écriture plutôt que de risquer une incohérence — c'est exactement le comportement CP de la section 3.1, vu en conditions réelles. Pour dérouler la suite de la démonstration sans être interrompus par cette abdication, nous avons temporairement augmenté le délai d'élection (`electionTimeoutMillis`).
 
-![Le primaire isolé abdique : plus aucune écriture possible](captures_partie_c/04_abdication_primaire.png)
+![Le primaire isolé abdique : plus aucune écriture possible](../captures_partie_c/04_abdication_primaire.png)
 
 **L'écriture "majority" échoue.** Avec le primaire seul (mais toujours en poste), l'insertion d'une nouvelle allergie en `w: "majority"` échoue après 5 secondes :
 
@@ -95,7 +95,7 @@ MongoWriteConcernError[WriteConcernFailed]: waiting for replication timed out
 
 Le détail le plus intéressant est dans la réponse : `n: 1`. Le document a bien été écrit **localement** sur le primaire, mais MongoDB refuse de dire "c'est réussi" tant que la majorité n'a pas confirmé. Le writeConcern ne contrôle donc pas l'écriture elle-même, mais la garantie qu'on peut lui accorder.
 
-![Preuve 1 : timeout de l'écriture majority pendant la panne](captures_partie_c/05_preuve1_timeout_majority.png)
+![Preuve 1 : timeout de l'écriture majority pendant la panne](../captures_partie_c/05_preuve1_timeout_majority.png)
 
 **La même donnée, deux réponses différentes.** Juste après, on lit ce patient avec les deux niveaux :
 
@@ -104,9 +104,9 @@ Le détail le plus intéressant est dans la réponse : `n: 1`. Le document a bie
 
 C'est le cœur de notre sujet, observé en direct : en niveau "local", un soignant pourrait lire une information qui n'est pas encore garantie et pourrait être annulée. En niveau "majority", le système avoue honnêtement qu'il ne peut pas encore la certifier.
 
-![Preuve 2 : la lecture "local" voit le patient...](captures_partie_c/06_preuve2_local_voit_diop.png)
+![Preuve 2 : la lecture "local" voit le patient...](../captures_partie_c/06_preuve2_local_voit_diop.png)
 
-![...la lecture "majority" le cache, puis le montre après réparation](captures_partie_c/07_preuve2b_et_3_majority.png)
+![...la lecture "majority" le cache, puis le montre après réparation](../captures_partie_c/07_preuve2b_et_3_majority.png)
 
 ### Test 3 — Retour à la normale
 

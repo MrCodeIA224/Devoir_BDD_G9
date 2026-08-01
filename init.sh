@@ -44,7 +44,6 @@ EVAL_USERS_VARIABLES="var ROOT_USER=\"$ROOT_USER\"; var ROOT_PASSWORD=\"$ROOT_PA
 # Raccourcis de connexion administratifs TLS utilisant les chemins internes du conteneur
 MONGOSH_TLS_ADMIN="mongosh --tls --tlsCertificateKeyFile /etc/mongo-certs/node.pem --tlsCAFile /etc/mongo-certs/ca.pem"
 
-
 echo -e "${BLUE}=== [1/6] Alignement des permissions de sécurité Linux ===${NC}"
 mkdir -p data/config1 data/config2 data/config3 data/shard1 data/shard1-node2 data/shard1-node3 data/shard2 data/shard3 data/shard4
 chmod -R 777 data/
