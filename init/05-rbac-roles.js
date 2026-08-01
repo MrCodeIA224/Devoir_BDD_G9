@@ -115,8 +115,13 @@ appDb.createRole({
 // 5) role_auditeur_securite — lecture SEULE des journaux d'audit /
 //    profiling. Aucun accès (même en lecture) aux données cliniques.
 // -----------------------------------------------------------------------
-const auditDb = db.getSiblingDB("audit_db");
-auditDb.createRole({
+// Ce rôle cible à la fois audit_db ET la base applicative (system.profile) :
+// un rôle défini sur une DB spécifique ne peut pas accorder de privilèges
+// sur une AUTRE DB (erreur MongoDB "cannot be granted privileges that
+// target other databases"). Il doit donc être créé sur la base "admin",
+// seule autorisée à porter des privilèges multi-DB.
+const adminDbForRoles = db.getSiblingDB("admin");
+adminDbForRoles.createRole({
   role: "role_auditeur_securite",
   privileges: [
     {

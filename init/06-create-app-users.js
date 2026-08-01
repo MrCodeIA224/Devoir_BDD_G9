@@ -42,7 +42,11 @@ appDb.createUser({
 // lecture seule sur les collections cliniques (pour détecter les
 // changements) + écriture sur audit_db.access_logs uniquement.
 const auditDb = db.getSiblingDB("audit_db");
-auditDb.createRole({
+
+// Rôle multi-DB (hopital_db + audit_db) : doit être défini sur "admin",
+// voir la même remarque dans 05-rbac-roles.js pour role_auditeur_securite.
+const adminDbForRoles = db.getSiblingDB("admin");
+adminDbForRoles.createRole({
   role: "role_app_watcher",
   privileges: [
     { resource: { db: APP_DB_NAME, collection: "dossiers_patients" }, actions: ["find", "changeStream"] },
@@ -54,14 +58,14 @@ auditDb.createRole({
 auditDb.createUser({
   user: APP_USER,
   pwd: APP_PASSWORD,
-  roles: [{ role: "role_app_watcher", db: "audit_db" }],
+  roles: [{ role: "role_app_watcher", db: "admin" }],
 });
 
 // Compte auditeur sécurité (authentification SCRAM classique)
 auditDb.createUser({
   user: AUDITEUR_USER,
   pwd: AUDITEUR_PASSWORD,
-  roles: [{ role: "role_auditeur_securite", db: "audit_db" }],
+  roles: [{ role: "role_auditeur_securite", db: "admin" }],
 });
 
 print("[OK] Comptes métier créés : " + MEDECIN_USER + ", " + INFIRMIER_USER +
@@ -73,11 +77,15 @@ print("[OK] Comptes métier créés : " + MEDECIN_USER + ", " + INFIRMIER_USER +
 // Alignement de la chaîne DN selon l'ordre strict attendu par MongoDB 8.0 
 // issu de la génération OpenSSL (C=SN, ST=Dakar, L=Dakar...).
 // -----------------------------------------------------------------------
-const CLIENT_CERT_SUBJECT = "C=SN,ST=Dakar,L=Dakar,O=DIT-MasterIA,OU=NoSQL-Devoir,CN=auditeur_secu_x509";
+// OU distinct de celui des certificats serveur du cluster (ClientsExternes vs
+// NoSQL-Devoir) : MongoDB refuse de créer un utilisateur x.509 dont le DN
+// pourrait être confondu avec un membre interne du cluster (même O/OU que
+// les certs serveur signés par la même CA).
+const CLIENT_CERT_SUBJECT = "C=SN,ST=Dakar,L=Dakar,O=DIT-MasterIA,OU=ClientsExternes,CN=auditeur_secu_x509";
 
 db.getSiblingDB("$external").createUser({
   user: CLIENT_CERT_SUBJECT,
-  roles: [{ role: "role_auditeur_securite", db: "audit_db" }],
+  roles: [{ role: "role_auditeur_securite", db: "admin" }],
 });
 
 print("[OK] Utilisateur x.509 $external créé avec succès pour : " + CLIENT_CERT_SUBJECT);

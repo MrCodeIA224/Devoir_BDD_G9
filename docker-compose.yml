@@ -19,6 +19,7 @@ services:
       - ./data/config1:/data/db
       - ./certs/configServ1.pem:/etc/mongo-certs/node.pem:ro
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key
@@ -38,6 +39,7 @@ services:
       - ./data/config2:/data/db
       - ./certs/configServ2.pem:/etc/mongo-certs/node.pem:ro
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key
@@ -57,6 +59,7 @@ services:
       - ./data/config3:/data/db
       - ./certs/configServ3.pem:/etc/mongo-certs/node.pem:ro
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key
@@ -79,6 +82,7 @@ services:
       - ./data/shard1:/data/db
       - ./certs/shard1.pem:/etc/mongo-certs/node.pem:ro
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key
@@ -98,6 +102,7 @@ services:
       - ./data/shard1-node2:/data/db
       - ./certs/shard1-node2.pem:/etc/mongo-certs/node.pem:ro # Utilise le certificat du shard1
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key
@@ -117,6 +122,7 @@ services:
       - ./data/shard1-node3:/data/db
       - ./certs/shard1-node3.pem:/etc/mongo-certs/node.pem:ro
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key
@@ -139,6 +145,7 @@ services:
       - ./data/shard2:/data/db
       - ./certs/shard2.pem:/etc/mongo-certs/node.pem:ro
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key
@@ -158,6 +165,7 @@ services:
       - ./data/shard3:/data/db
       - ./certs/shard3.pem:/etc/mongo-certs/node.pem:ro
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key
@@ -177,6 +185,7 @@ services:
       - ./data/shard4:/data/db
       - ./certs/shard4.pem:/etc/mongo-certs/node.pem:ro
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key
@@ -204,6 +213,7 @@ services:
     volumes:
       - ./certs/mongos.pem:/etc/mongo-certs/node.pem:ro
       - ./certs/ca.pem:/etc/mongo-certs/ca.pem:ro
+      - ./init:/init:ro
     secrets:
       - source: cluster_keyfile
         target: /etc/mongo-keyfile/mongo-cluster.key

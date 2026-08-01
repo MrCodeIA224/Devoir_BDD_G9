@@ -5,20 +5,24 @@ generate_dataset.py
 Génère un jeu de données réaliste pour le use case "Plateforme Centrale de
 Centralisation de Logs Médicaux" (Devoir MongoDB - Master IA).
 
-Génère 4 collections :
-  - patients
-  - consultations
-  - resultats_labo
-  - logs_acces
+Génère des documents alignés sur le schéma réellement utilisé par le cluster
+sécurisé/shardé du projet (voir init/07-sharding-collections.js et
+init/08-views-field-redaction.js) :
+  - hopital_db.dossiers_patients (shardée sur patient_id hashed)
+  - hopital_db.resultats_labo    (shardée sur patient_id hashed)
+  - hopital_db.suivi_soins       (utilisée par le rôle infirmier)
+  - audit_db.access_logs         (utilisée par le rôle auditeur)
 
+Usage rapide (fichiers JSON, aucune dépendance au cluster) :
+    python3 generate_dataset.py --num-patients 300
 
-Usage rapide :
-    python3 generate_dataset.py --num-patients 50000
-
+Insertion directe dans le cluster sécurisé (via mongos, TLS + auth) :
+    python3 generate_dataset.py --num-patients 300 --insert-mongo
 """
 
 import argparse
 import json
+import os
 import random
 from datetime import datetime, timedelta
 
@@ -55,7 +59,6 @@ REGIONS_HOPITAUX = {
     "HOP-TBA-01": {"nom": "Hôpital Régional de Touba", "ville": "Touba", "region": "Diourbel"},
 }
 # Poids volontairement inégaux : Dakar concentre plus de patients.
-# Utile pour tester une clé de sharding par zone (region) chez Personne A.
 HOPITAUX_IDS = list(REGIONS_HOPITAUX.keys())
 HOPITAUX_POIDS = [30, 20, 15, 8, 7, 7, 6, 7]
 
@@ -65,8 +68,7 @@ ALLERGIES_POSSIBLES = [
     "Fruits de mer", "Sulfamides",
 ]
 
-# Diagnostics en texte libre : phrases réalistes pour tester les Text Indexes
-# (Partie 5 - Personne C). On varie volontairement le vocabulaire médical.
+# Diagnostics en texte libre : phrases réalistes pour tester les Text Indexes.
 DIAGNOSTICS = [
     "Suspicion de diabète type 2, glycémie à jeun élevée, mise sous metformine",
     "Hypertension artérielle non contrôlée, ajustement du traitement antihypertenseur",
@@ -88,6 +90,15 @@ DIAGNOSTICS = [
     "Bilan cardiovasculaire de routine, ECG normal, aucune anomalie détectée",
     "Suivi VIH, charge virale indétectable, bonne observance du traitement",
     "Consultation pédiatrique, retard de croissance à surveiller",
+]
+
+ANTECEDENTS_PSY_POSSIBLES = [
+    "Aucun antécédent particulier",
+    "Aucun antécédent particulier",
+    "Aucun antécédent particulier",
+    "Suivi pour trouble anxieux généralisé",
+    "Antécédent dépressif documenté, sous traitement",
+    "Antécédent de trouble bipolaire stabilisé",
 ]
 
 TRAITEMENTS_POSSIBLES = [
@@ -124,19 +135,21 @@ def date_aleatoire(annees_passees=5):
     return debut + timedelta(days=delta_jours)
 
 
-def generer_patient(index):
+def generer_dossier_patient(index):
+    """Un document = le dossier patient complet (schéma attendu par
+    init/08-views-field-redaction.js : la vue infirmier masque
+    diagnostic_detaille, antecedents_psychiatriques et notes_medecin)."""
     sexe = random.choice(["M", "F"])
     prenom = random.choice(PRENOMS_H if sexe == "M" else PRENOMS_F)
     nom = random.choice(NOMS_FAMILLE)
     hopital_id = choisir_hopital()
     infos_hopital = REGIONS_HOPITAUX[hopital_id]
 
-    # Quelques patients "chauds" (10%) auront beaucoup plus de consultations
-    # -> utile pour simuler une charge réaliste et tester les performances.
+    # Quelques patients "chauds" (10%) : dossier plus étoffé, utile pour
+    # simuler une charge réaliste.
     est_patient_chaud = random.random() < 0.10
 
     return {
-        "_id_logique": f"PAT-{index:06d}",
         "patient_id": f"PAT-{index:06d}",
         "nom": nom,
         "prenom": prenom,
@@ -149,28 +162,18 @@ def generer_patient(index):
             "region": infos_hopital["region"],
         },
         "hopital_reference": hopital_id,
+        "traitements_en_cours": random.sample(
+            TRAITEMENTS_POSSIBLES, k=random.randint(1, 3)
+        ),
+        # Champs cliniques sensibles, masqués pour le rôle infirmier par la
+        # vue v_dossiers_patients_infirmier :
+        "diagnostic_detaille": random.choice(DIAGNOSTICS),
+        "antecedents_psychiatriques": random.choice(ANTECEDENTS_PSY_POSSIBLES),
+        "notes_medecin": fake.sentence(nb_words=12),
         "est_patient_chaud": est_patient_chaud,
         "created_at": date_aleatoire(annees_passees=5),
         "updated_at": datetime.now(),
     }
-
-
-def generer_consultations_pour_patient(patient):
-    nb = random.randint(15, 30) if patient["est_patient_chaud"] else random.randint(3, 10)
-    consultations = []
-    for _ in range(nb):
-        consultations.append({
-            "patient_id": patient["patient_id"],
-            "medecin_id": f"MED-{random.randint(1, 200):04d}",
-            "hopital_id": patient["hopital_reference"],
-            "date": date_aleatoire(annees_passees=5),
-            "diagnostic": random.choice(DIAGNOSTICS),
-            "traitement_prescrit": random.sample(
-                TRAITEMENTS_POSSIBLES, k=random.randint(1, 3)
-            ),
-            "type_document": "consultation",
-        })
-    return consultations
 
 
 def generer_resultats_labo_pour_patient(patient):
@@ -191,7 +194,29 @@ def generer_resultats_labo_pour_patient(patient):
     return resultats
 
 
+def generer_suivi_soins_pour_patient(patient):
+    """Constantes/soins courants : collection dédiée à l'infirmier
+    (find/insert/update dans role_infirmier, séparée du dossier complet)."""
+    nb = random.randint(2, 5)
+    soins = []
+    for _ in range(nb):
+        soins.append({
+            "patient_id": patient["patient_id"],
+            "date": date_aleatoire(annees_passees=2),
+            "infirmier_id": f"INF-{random.randint(1, 100):04d}",
+            "constantes": {
+                "tension_arterielle": f"{random.randint(10, 16)}/{random.randint(6, 10)}",
+                "temperature_c": round(random.uniform(36.0, 39.5), 1),
+                "pouls_bpm": random.randint(55, 115),
+            },
+            "notes_soins": fake.sentence(nb_words=8),
+        })
+    return soins
+
+
 def generer_logs_pour_patient(patient, nb_min=5, nb_max=20):
+    """Journal d'accès applicatif (audit_db.access_logs, lu par
+    role_auditeur_securite / alimenté par role_app_watcher)."""
     nb = random.randint(nb_min, nb_max)
     logs = []
     for _ in range(nb):
@@ -220,13 +245,24 @@ def ecrire_json(chemin, documents):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Génère le jeu de données patients/consultations/labo/logs")
-    parser.add_argument("--num-patients", type=int, default=10000, help="Nombre de patients à générer")
+    parser = argparse.ArgumentParser(
+        description="Génère des données de test pour hopital_db / audit_db"
+    )
+    parser.add_argument("--num-patients", type=int, default=300, help="Nombre de patients à générer")
     parser.add_argument("--output-dir", type=str, default="./dataset", help="Dossier de sortie pour les fichiers JSON")
     parser.add_argument("--seed", type=int, default=42, help="Graine aléatoire pour la reproductibilité")
-    parser.add_argument("--insert-mongo", action="store_true", help="Insère directement dans MongoDB au lieu d'écrire des fichiers JSON")
-    parser.add_argument("--mongo-uri", type=str, default="mongodb://localhost:27017", help="URI de connexion MongoDB (utilisé avec --insert-mongo)")
-    parser.add_argument("--db-name", type=str, default="dossier_patient_partage", help="Nom de la base MongoDB cible")
+
+    parser.add_argument("--insert-mongo", action="store_true",
+                         help="Insère directement dans le cluster sécurisé (via mongos) au lieu d'écrire des fichiers JSON")
+    parser.add_argument("--host", type=str, default="localhost", help="Hôte de mongos (utilisé avec --insert-mongo)")
+    parser.add_argument("--port", type=int, default=27020, help="Port exposé de mongos sur l'hôte (27020, voir docker-compose.yml)")
+    parser.add_argument("--username", type=str, default="admin_root", help="Utilisateur MongoDB (créé par init/04-create-admin-users.js)")
+    parser.add_argument("--password", type=str, default="SuperSecretRootPassword2026", help="Mot de passe associé")
+    parser.add_argument("--auth-source", type=str, default="admin", help="Base d'authentification de l'utilisateur")
+    parser.add_argument("--tls-cert", type=str, default="./certs/admin-client.pem", help="Certificat client TLS (mutual TLS requis par requireTLS)")
+    parser.add_argument("--tls-ca", type=str, default="./certs/ca.pem", help="Certificat de la CA du cluster")
+    parser.add_argument("--db-name", type=str, default="hopital_db", help="Base applicative cible (dossiers_patients / resultats_labo / suivi_soins)")
+    parser.add_argument("--audit-db-name", type=str, default="audit_db", help="Base d'audit cible (access_logs)")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -234,66 +270,80 @@ def main():
 
     print(f"Génération de {args.num_patients} patients...")
 
-    patients, consultations, resultats_labo, logs_acces = [], [], [], []
+    dossiers_patients, resultats_labo, suivi_soins, access_logs = [], [], [], []
 
     for i in range(1, args.num_patients + 1):
-        patient = generer_patient(i)
-        patients.append(patient)
-        consultations.extend(generer_consultations_pour_patient(patient))
+        patient = generer_dossier_patient(i)
+        dossiers_patients.append(patient)
         resultats_labo.extend(generer_resultats_labo_pour_patient(patient))
-        logs_acces.extend(generer_logs_pour_patient(patient))
+        suivi_soins.extend(generer_suivi_soins_pour_patient(patient))
+        access_logs.extend(generer_logs_pour_patient(patient))
 
         if i % 1000 == 0:
             print(f"  ... {i}/{args.num_patients} patients traités")
 
-    # On retire le champ technique interne avant export
-    for p in patients:
-        p.pop("_id_logique", None)
-
     print("\nRésumé du dataset généré :")
-    print(f"  patients        : {len(patients)}")
-    print(f"  consultations   : {len(consultations)}")
-    print(f"  resultats_labo  : {len(resultats_labo)}")
-    print(f"  logs_acces      : {len(logs_acces)}")
+    print(f"  dossiers_patients (hopital_db) : {len(dossiers_patients)}")
+    print(f"  resultats_labo    (hopital_db) : {len(resultats_labo)}")
+    print(f"  suivi_soins       (hopital_db) : {len(suivi_soins)}")
+    print(f"  access_logs       (audit_db)   : {len(access_logs)}")
 
     if args.insert_mongo:
         import pymongo
 
-        print(f"\nConnexion à MongoDB : {args.mongo_uri}")
-        client = pymongo.MongoClient(args.mongo_uri)
-        db = client[args.db_name]
+        print(f"\nConnexion à mongos : {args.host}:{args.port} (TLS + auth, utilisateur '{args.username}')")
+        client = pymongo.MongoClient(
+            host=args.host,
+            port=args.port,
+            username=args.username,
+            password=args.password,
+            authSource=args.auth_source,
+            tls=True,
+            tlsCertificateKeyFile=args.tls_cert,
+            tlsCAFile=args.tls_ca,
+            serverSelectionTimeoutMS=5000,
+        )
+        # Force la connexion tout de suite pour échouer vite avec un message clair
+        client.admin.command("ping")
 
-        collections = {
-            "patients": patients,
-            "consultations": consultations,
+        app_db = client[args.db_name]
+        audit_db = client[args.audit_db_name]
+
+        # On n'utilise PAS drop() sur dossiers_patients/resultats_labo : ce
+        # sont des collections déjà shardées (init/07-sharding-collections.js).
+        # Un drop() les recréerait comme collections NON shardées à la
+        # prochaine écriture. On insère donc en complément des données
+        # existantes.
+        collections_app = {
+            "dossiers_patients": dossiers_patients,
             "resultats_labo": resultats_labo,
-            "logs_acces": logs_acces,
+            "suivi_soins": suivi_soins,
         }
-
-        for nom_collection, documents in collections.items():
-            db[nom_collection].drop()
-            # Insertion par lots de 1000 pour éviter de saturer la mémoire/réseau
+        for nom_collection, documents in collections_app.items():
             for i in range(0, len(documents), 1000):
                 lot = documents[i:i + 1000]
-                db[nom_collection].insert_many(lot)
-            print(f"  -> {len(documents)} documents insérés dans '{nom_collection}'")
+                app_db[nom_collection].insert_many(lot)
+            print(f"  -> {len(documents)} documents insérés dans '{args.db_name}.{nom_collection}'")
+
+        for i in range(0, len(access_logs), 1000):
+            lot = access_logs[i:i + 1000]
+            audit_db["access_logs"].insert_many(lot)
+        print(f"  -> {len(access_logs)} documents insérés dans '{args.audit_db_name}.access_logs'")
 
         print("\nInsertion terminée dans MongoDB.")
-        print(f"Base : {args.db_name}")
     else:
-        import os
         os.makedirs(args.output_dir, exist_ok=True)
 
-        ecrire_json(os.path.join(args.output_dir, "patients.json"), patients)
-        ecrire_json(os.path.join(args.output_dir, "consultations.json"), consultations)
+        ecrire_json(os.path.join(args.output_dir, "dossiers_patients.json"), dossiers_patients)
         ecrire_json(os.path.join(args.output_dir, "resultats_labo.json"), resultats_labo)
-        ecrire_json(os.path.join(args.output_dir, "logs_acces.json"), logs_acces)
+        ecrire_json(os.path.join(args.output_dir, "suivi_soins.json"), suivi_soins)
+        ecrire_json(os.path.join(args.output_dir, "access_logs.json"), access_logs)
 
         print(f"\nFichiers JSON écrits dans : {args.output_dir}/")
-        print("  - patients.json")
-        print("  - consultations.json")
+        print("  - dossiers_patients.json")
         print("  - resultats_labo.json")
-        print("  - logs_acces.json")
+        print("  - suivi_soins.json")
+        print("  - access_logs.json")
 
 
 if __name__ == "__main__":

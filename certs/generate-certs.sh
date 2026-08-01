@@ -89,7 +89,10 @@ echo "      déterminée par SCRAM-SHA-256 (utilisateur/mot de passe), sauf pour
 echo "      le compte auditeur qui démontre en plus l'auth x.509 dédiée.)"
 
 echo "== 4/4 : Génération du certificat client x.509 (compte auditeur) =="
-CLIENT_SUBJ="/C=SN/ST=Dakar/L=Dakar/O=DIT-MasterIA/OU=NoSQL-Devoir/CN=auditeur_secu_x509"
+# OU différent de celui des certs serveur (NoSQL-Devoir) : un DN client
+# identique à celui des membres du cluster est refusé par MongoDB lors de
+# la création de l'utilisateur x.509 (voir init/06-create-app-users.js).
+CLIENT_SUBJ="/C=SN/ST=Dakar/L=Dakar/O=DIT-MasterIA/OU=ClientsExternes/CN=auditeur_secu_x509"
 openssl genrsa -out client-auditeur.key 2048
 openssl req -new -key client-auditeur.key -out client-auditeur.csr -subj "$CLIENT_SUBJ"
 openssl x509 -req -in client-auditeur.csr -CA ca.pem -CAkey ca.key -CAcreateserial \

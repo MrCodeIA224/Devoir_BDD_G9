@@ -10,39 +10,7 @@ Ce dépôt contient l'implémentation complète, industrialisée et hautement s�
 
 Le cluster isole logiquement les flux réseau pour empêcher toute intrusion directe sur les nœuds de stockage :
 
-```mermaid
-flowchart TD
-    subgraph Frontend ["ZONE EXPOSÉE HÔTE (frontend-net)"]
-        mongos["🌐 Routeur Mongos (Port Hôte: 27020)"]
-        watcher["⚙️ Audit Watcher (Service d'Écoute)"]
-    end
-
-    subgraph Backend ["ZONE ISOLÉE INTERNE (backend-net / DMZ)"]
-        subgraph ConfigRS ["[ Replica Set : configReplSet ]"]
-            c1["ConfigServ1:27019"]
-            c2["ConfigServ2:27019"]
-            c3["ConfigServ3:27019"]
-         Reds configReplSet
-        end
-
-        subgraph Shard1RS ["[ Shard1ReplSet (3 membres - Cohérence) ]"]
-            s1["shard1:27018 (Primary)"]
-            s1n2["shard1-node2:27018 (Secondary)"]
-            s1n3["shard1-node3:27018 (Secondary)"]
-        end
-
-        subgraph ShardsOthers ["[ Fragments légers (1 membre pour la RAM) ]"]
-            s2["shard2ReplSet / shard2:27018"]
-            s3["shard3ReplSet / shard3:27018"]
-            s4["shard4ReplSet / shard4:27018"]
-        end
-    end
-
-    mongos -->|Consulte la table de routage| ConfigRS
-    mongos -->|Distribue les requêtes| Shard1RS
-    mongos -->|Distribue les requêtes| ShardsOthers
-    watcher -->|Surveille en TLS| mongos
-```
+---------------------
 
 ### 🔒 Cloisonnement des Réseaux Docker
 *   **Zone Interne Étanche (`backend-net / internal: true`)** : Les fragments (*shards*) et les serveurs de métadonnées (*config servers*) y sont confinés. Ils ne publient aucun port vers l'extérieur et sont invisibles pour la machine hôte. Isolation réseau = première ligne de défense.

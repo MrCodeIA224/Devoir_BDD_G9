@@ -1,3 +1,4 @@
+
 #!/bin/bash
 # =============================================================================
 # Script d'initialisation global — Plateforme de Logs Médicaux (Dossier Patient Partagé)
@@ -39,24 +40,53 @@ EVAL_APP_VARIABLES="var ROOT_USER=\"$ROOT_USER\"; var ROOT_PASSWORD=\"$ROOT_PASS
 EVAL_USERS_VARIABLES="var ROOT_USER=\"$ROOT_USER\"; var ROOT_PASSWORD=\"$ROOT_PASSWORD\"; var APP_DB_NAME=\"$APP_DB_NAME\"; var MEDECIN_USER=\"$MEDECIN_USER\"; var MEDECIN_PASSWORD=\"$MEDECIN_PASSWORD\"; var INFIRMIER_USER=\"$INFIRMIER_USER\"; var INFIRMIER_PASSWORD=\"$INFIRMIER_PASSWORD\"; var LABORANTIN_USER=\"$LABORANTIN_USER\"; var LABORANTIN_PASSWORD=\"$LABORANTIN_PASSWORD\"; var ADMIN_HOPITAL_USER=\"$ADMIN_HOPITAL_USER\"; var ADMIN_HOPITAL_PASSWORD=\"$ADMIN_HOPITAL_PASSWORD\"; var AUDITEUR_USER=\"$AUDITEUR_USER\"; var AUDITEUR_PASSWORD=\"$AUDITEUR_PASSWORD\"; var APP_USER=\"$APP_USER\"; var APP_PASSWORD=\"$APP_PASSWORD\";"
 
 # Raccourcis de connexion administratifs TLS locaux requis par net.tls.mode=requireTLS
-MONGOSH_TLS_ADMIN="mongosh --tls --tlsCertificateKeyFile ./certs/admin-client.pem --tlsCAFile ./certs/ca.pem"
+#MONGOSH_TLS_ADMIN="mongosh --tls --tlsCertificateKeyFile ./certs/admin-client.pem --tlsCAFile ./certs/ca.pem"
+# Raccourcis de connexion administratifs TLS utilisant les chemins internes du conteneur
+MONGOSH_TLS_ADMIN="mongosh --tls --tlsCertificateKeyFile /etc/mongo-certs/node.pem --tlsCAFile /etc/mongo-certs/ca.pem"
+
 
 echo -e "${BLUE}=== [1/6] Alignement des permissions de sécurité Linux ===${NC}"
 mkdir -p data/config1 data/config2 data/config3 data/shard1 data/shard1-node2 data/shard1-node3 data/shard2 data/shard3 data/shard4
 chmod -R 777 data/
-chmod 400 keyfile/mongo-cluster.key 2>/dev/null || echo -e "${RED}[!] Attention: keyfile introuvable${NC}"
-chmod 600 certs/*.pem 2>/dev/null || echo -e "${RED}[!] Attention: Certificats PEM introuvables${NC}"
-echo -e "${GREEN}[OK] Dossiers et permissions initialisés.${NC}\n"
+
+
+echo -e "${BLUE}=== [1/6] Alignement des permissions de sécurité Linux ===${NC}"
+mkdir -p data/config1 data/config2 data/config3 data/shard1 data/shard1-node2 data/shard1-node3 data/shard2 data/shard3 data/shard4
+chmod -R 777 data/
+
+# 1. Ajustement du Keyfile pour l'utilisateur MongoDB de Docker (uid 999)
+if [ -f "keyfile/mongo-cluster.key" ]; then
+    sudo chown -R $USER:$USER keyfile/
+    chmod 600 keyfile/mongo-cluster.key
+    echo -e "${GREEN}[OK] Keyfile configuré avec les permissions strictes.${NC}"
+else
+    echo -e "${RED}[!] Erreur: keyfile/mongo-cluster.key introuvable !${NC}"
+fi
+
+# 2. Ajustement des certificats TLS pour l'utilisateur MongoDB de Docker (uid 999)
+if ls certs/*.pem &>/dev/null; then
+    sudo chown -R $USER:$USER certs/
+    chmod 644 certs/*.pem
+    echo -e "${GREEN}[OK] Certificats PEM sécurisés.${NC}"
+else
+    echo -e "${RED}[!] Erreur: Aucun certificat .pem trouvé dans le dossier certs/ !${NC}"
+fi
+
+
+
+# chmod 400 ./keyfile/mongo-cluster.key 2>/dev/null || echo -e "${RED}[!] Attention: keyfile introuvable${NC}"
+# chmod 600 ./certs/*.pem 2>/dev/null || echo -e "${RED}[!] Attention: Certificats PEM introuvables${NC}"
+# echo -e "${GREEN}[OK] Dossiers et permissions initialisés.${NC}\n"
 
 echo -e "${BLUE}=== [2/6] Démarrage des conteneurs via Docker Compose ===${NC}"
 docker compose up -d
-echo -e "${YELLOW}Attente de 15 secondes pour l'initialisation des processus MongoDB 8.0...${NC}"
-sleep 15
+echo -e "${YELLOW}Attente de 30 secondes pour l'initialisation des processus MongoDB 8.0...${NC}"
+sleep 30
 
 echo -e "${BLUE}=== [3/6] Initialisation logique de l'infrastructure de base ===${NC}"
 
 echo "-> Liaison du Replica Set des Config Servers (Script 01)..."
-docker exec -it mongo-config1 $MONGOSH_TLS_ADMIN --port 27019 --file /init/01-init-config-servers.js
+docker exec -it mongo-config1 $MONGOSH_TLS_ADMIN --port 27019 --file /init/01-init-configsvr-rs.js
 sleep 5
 
 echo "-> Liaison spécifique du Shard 1 (3 membres pour la démo de cohérence)..."
@@ -79,7 +109,7 @@ docker exec -it mongo-shard4 $MONGOSH_TLS_ADMIN --port 27018 --eval 'var SHARD_H
 sleep 3
 
 echo "-> Enregistrement des 4 fragments auprès du routeur central (Script 03)..."
-docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --file /init/03-add-shards-to-mongos.js
+docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --file /init/03-mongos-addshards.js
 sleep 2
 
 echo -e "${BLUE}=== [4/6] Création des comptes administratifs & Verrouillage du cluster ===${NC}"
@@ -102,11 +132,27 @@ docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --eval "$EVAL_APP_V
 echo "-> Création des vues de masquage de données pour les infirmiers (Script 08)..."
 docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --eval "$EVAL_APP_VARIABLES" --file /init/08-views-field-redaction.js
 
+echo "-> Duplication des comptes admin directement sur chaque shard..."
+# Les utilisateurs créés via mongos (Script 04) ne vivent que dans la base
+# admin des config servers. Chaque shard mongod a sa PROPRE base admin locale
+# et indépendante : une connexion directe (hors mongos) ne les authentifie
+# donc pas. On recrée ici les mêmes comptes root/DBA localement sur chaque
+# shard, nécessaire pour les opérations directes comme le profiler ci-dessous.
+for SHARD_CONTAINER in mongo-shard1 mongo-shard2 mongo-shard3 mongo-shard4; do
+  docker exec -it "$SHARD_CONTAINER" $MONGOSH_TLS_ADMIN --port 27018 --eval "$EVAL_ADMIN_VARIABLES" --file /init/04-create-admin-users.js
+done
+
 echo "-> Activation du Profiler d'audit et de traçabilité légale (Script 09)..."
-docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --eval "$EVAL_APP_VARIABLES" --file /init/09-audit-profiling.js
+# Le profiler ne peut pas être activé via mongos (limitation MongoDB : "Profiling
+# is not permitted on mongoS"). hopital_db étant shardée sur les 4 shards, il
+# faut l'activer directement sur chaque shard qui héberge des chunks.
+for SHARD_CONTAINER in mongo-shard1 mongo-shard2 mongo-shard3 mongo-shard4; do
+  docker exec -it "$SHARD_CONTAINER" $MONGOSH_TLS_ADMIN --port 27018 --eval "$EVAL_APP_VARIABLES" --file /init/09-audit-profiling.js
+done
 
 echo -e "${BLUE}=== [6/6] Contrôle de l'état de l'infrastructure unifiée ===${NC}"
-docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 --eval 'sh.status()'
+# Authentification obligatoire désormais (localhost exception fermée à l'étape 4)
+docker exec -it mongo-mongos $MONGOSH_TLS_ADMIN --port 27017 -u "$ROOT_USER" -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval 'sh.status()'
 
 echo -e "${GREEN}=== [SUCCÈS] Architecture MongoDB Shardée et Sécurisée opérationnelle à 100% ! ===${NC}"
 echo -e "${YELLOW}Toutes les briques logicielles (Personne A + Personne B) sont synchronisées.${NC}"
